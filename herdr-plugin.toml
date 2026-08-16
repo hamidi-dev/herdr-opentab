@@ -1,0 +1,67 @@
+# herdr-opentab — live per-agent spend from OpenTab in the Herdr sidebar.
+#
+# Verified against herdr 0.7.5 (`herdr --version`) and opentab 1.17.0.
+#
+# One daemon prices every agent pane in a single `opentab cost --batch -` call
+# rather than one call per pane: opentab's own help says the interpreter start
+# (~90ms) dwarfs the pricing, so a per-pane fan-out pays that start N times for
+# an answer one process already had. The startup hook launches the daemon; the
+# event hooks only nudge it awake.
+#
+# Keybindings are NOT declared here — herdr's manifest has no `keys` field, and
+# users bind plugin actions from their own config.toml. See the README.
+
+id = "opentab"
+name = "OpenTab"
+version = "0.1.0"
+min_herdr_version = "0.7.0"
+description = "Live per-agent spend from OpenTab in the Herdr sidebar."
+platforms = ["linux", "macos"]
+
+# --- Daemon ------------------------------------------------------------------
+# Startup hooks are one-shot, so this one spawns the detached poller and exits.
+# It runs again on live handoff; the daemon's lock makes the second one a no-op.
+
+[[startup]]
+command = ["python3", "src/daemon.py", "--startup"]
+
+# --- Event hooks -------------------------------------------------------------
+# A newly detected agent should show a price now, not on the next tick, and a
+# status change is the moment a price most likely moved. Both only touch the
+# daemon's wake file (and revive it if herdr never ran the startup hook, as
+# after `herdr plugin link`), so an event storm costs no opentab calls.
+
+[[events]]
+on = "pane.agent_detected"
+command = ["python3", "src/refresh.py", "--event"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["python3", "src/refresh.py", "--event"]
+
+# --- Actions -----------------------------------------------------------------
+# Invoked with `herdr plugin action invoke opentab.<id>` or a user key binding.
+
+[[actions]]
+id = "refresh"
+title = "OpenTab: refresh prices now"
+contexts = ["global", "workspace", "pane"]
+command = ["python3", "src/refresh.py", "--now"]
+
+[[actions]]
+id = "setup"
+title = "OpenTab: show the sidebar row to add"
+contexts = ["global", "workspace"]
+command = ["python3", "src/setup_sidebar.py", "install"]
+
+[[actions]]
+id = "doctor"
+title = "OpenTab: diagnose the plugin"
+contexts = ["global", "workspace"]
+command = ["python3", "src/doctor.py"]
+
+[[actions]]
+id = "stop"
+title = "OpenTab: stop the price daemon"
+contexts = ["global", "workspace"]
+command = ["python3", "src/daemon.py", "--stop"]
