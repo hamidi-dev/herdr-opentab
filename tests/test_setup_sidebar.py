@@ -127,9 +127,10 @@ class Install(unittest.TestCase):
             return handle.read()
 
     def test_a_missing_config_is_created(self):
-        code, _ = self.install()
+        code, output = self.install()
         self.assertEqual(code, 0)
-        self.assertIn('["$cost", "agent"]', self.read())
+        self.assertIn('["$cost", "$elapsed", "agent"]', self.read())
+        self.assertIn("herdr server reload-config", output)
 
     def test_the_block_is_appended_to_an_unrelated_config(self):
         with open(self.path, "w", encoding="utf-8") as handle:
@@ -160,7 +161,7 @@ class Install(unittest.TestCase):
         with open(self.path, "w", encoding="utf-8") as handle:
             handle.write("# I used to have $cost here\n")
         self.install()
-        self.assertIn('["$cost", "agent"]', self.read())
+        self.assertIn('["$cost", "$elapsed", "agent"]', self.read())
 
     def test_a_quoted_table_header_is_the_same_table(self):
         # `[ui.sidebar."agents"]` is the same TOML table, so appending our own
@@ -173,7 +174,21 @@ class Install(unittest.TestCase):
 
     def test_a_renamed_token_is_the_one_written(self):
         self.install(token="spend")
-        self.assertIn('["$spend", "agent"]', self.read())
+        self.assertIn('["$spend", "$elapsed", "agent"]', self.read())
+
+    def test_existing_cost_only_layout_gets_timer_instructions_not_rewritten(self):
+        original = '[ui.sidebar.agents]\nrows = [["$cost", "agent"]]\n'
+        with open(self.path, "w", encoding="utf-8") as handle:
+            handle.write(original)
+        code, output = self.install()
+        self.assertEqual(code, 0)
+        self.assertEqual(self.read(), original)
+        self.assertIn('"$elapsed"', output)
+        self.assertIn("herdr server reload-config", output)
+        self.assertNotIn("nothing to do", output)
+
+    def test_disabled_timer_is_not_in_layout(self):
+        self.assertNotIn("$elapsed", setup_sidebar.block("cost", elapsed=False))
 
 
 if __name__ == "__main__":

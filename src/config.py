@@ -23,6 +23,8 @@ DEFAULTS: dict[str, Any] = {
     # Sidebar token name: `$cost` in ui.sidebar.agents.rows. Renameable so this
     # can live beside another cost plugin that already claimed the name.
     "token": "cost",
+    # Show time in the current agent state as `$elapsed`, independently of cost.
+    "elapsed": True,
     # Seconds between rounds while any agent is working. opentab reads
     # transcripts off disk; 10s is well under the pace a price actually moves.
     "interval_secs": 10,
@@ -70,6 +72,7 @@ _MAX_INTERVAL = MAX_TTL_MS // 3000
 class Config:
     def __init__(self, values: dict[str, Any], warnings: list[str]) -> None:
         self.token: str = values["token"]
+        self.elapsed: bool = values["elapsed"]
         self.interval_secs: int = values["interval_secs"]
         self.idle_interval_secs: int = values["idle_interval_secs"]
         self.fallback: str = values["fallback"]
@@ -195,10 +198,13 @@ def _coerce(values: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
 
     # Not bool(): "false" and 0 are the shapes a user actually types, and
     # silently reading them as true/false is worse than saying so.
-    for key in ("strip_approx", "align"):
+    for key in ("strip_approx", "align", "elapsed"):
         if not isinstance(merged[key], bool):
             warnings.append(f"invalid {key} {merged[key]!r}; using {DEFAULTS[key]}")
             merged[key] = DEFAULTS[key]
+    if merged["elapsed"] and merged["token"] == "elapsed":
+        warnings.append("token 'elapsed' is used for cost; disabling the elapsed timer")
+        merged["elapsed"] = False
     return merged
 
 

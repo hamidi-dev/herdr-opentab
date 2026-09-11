@@ -7,7 +7,9 @@ call everywhere, and it is the documented plugin API.
 
 from __future__ import annotations
 
+import fcntl
 import json
+import os
 import subprocess
 from typing import Any
 
@@ -106,7 +108,14 @@ def agent_list() -> list[Agent] | None:
     return [Agent(raw) for raw in agents if isinstance(raw, dict)]
 
 
-def report_token(pane_id: str, token: str, value: str, ttl_ms: int | None, seq: int) -> bool:
+def report_token(
+    pane_id: str,
+    token: str,
+    value: str,
+    ttl_ms: int | None,
+    seq: int,
+    source: str = config.SOURCE,
+) -> bool:
     """Set one pane metadata token. `seq` lets herdr drop a late round."""
     argv = [
         config.herdr_bin(),
@@ -114,7 +123,7 @@ def report_token(pane_id: str, token: str, value: str, ttl_ms: int | None, seq: 
         "report-metadata",
         pane_id,
         "--source",
-        config.SOURCE,
+        source,
         "--token",
         f"{token}={value}",
         "--seq",
@@ -122,20 +131,78 @@ def report_token(pane_id: str, token: str, value: str, ttl_ms: int | None, seq: 
     ]
     if ttl_ms is not None:
         argv += ["--ttl-ms", str(ttl_ms)]
-    return _run(argv) is not None
+    return _write_metadata(argv, token, source)
 
 
-def clear_token(pane_id: str, token: str, seq: int) -> bool:
+def clear_token(pane_id: str, token: str, seq: int, source: str = config.SOURCE) -> bool:
     argv = [
         config.herdr_bin(),
         "pane",
         "report-metadata",
         pane_id,
         "--source",
-        config.SOURCE,
+        source,
         "--clear-token",
         token,
         "--seq",
         str(seq),
     ]
-    return _run(argv) is not None
+    return _write_metadata(argv, token, source, clearing=True)
+
+
+def _write_metadata(argv: list[str], token: str, source: str, clearing: bool = False) -> bool:
+    if token != "elapsed":
+        return _run(argv) is not None
+    # `elapsed` may already be a user's price token. Serialize its handoff
+    # across the timer, price loop AND manual refresh process. Check current
+    # config inside the lock so an in-flight old round cannot reclaim it.
+    try:
+        directory = config.state_dir()
+        os.makedirs(directory, exist_ok=True)
+        with open(os.path.join(directory, "elapsed.lock"), "a+", encoding="utf-8") as handle:
+            # Never queue behind a wedged CLI call. The next tick retries.
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            handle.seek(0)
+            try:
+                owners = json.load(handle)
+            except ValueError:
+                owners = {}
+            if not isinstance(owners, dict):
+                owners = {}
+            pane = argv[3]
+            cfg = config.load()
+            if clearing:
+                # Protect an actual replacement, not just an enabled worker:
+                # filters/unknown states may leave this pane without a timer.
+                # Before timers shipped, only the price source wrote this key.
+                owns = owners.get(pane, config.SOURCE) == source
+            else:
+                owns = (
+                    (cfg.token == token)
+                    if source == config.SOURCE
+                    else (cfg.elapsed and cfg.token != token)
+                )
+            if not owns:
+                # An obsolete clear is already satisfied: the new owner must
+                # keep its value. An obsolete report must not be remembered.
+                return clearing
+            if source != config.SOURCE:
+                # This single worker is serialized by the lock; sequencing adds
+                # no ordering and survives restarts/clock rollback in Herdr.
+                argv = list(argv)
+                index = argv.index("--seq")
+                del argv[index : index + 2]
+            succeeded = _run(argv) is not None
+            if clearing and (succeeded or source != config.SOURCE):
+                # A failed timer clear can be left to its five-second lease.
+                # Do not retain closed panes in the ownership file forever.
+                owners.pop(pane, None)
+            elif succeeded:
+                owners[pane] = source
+            handle.seek(0)
+            handle.truncate()
+            json.dump(owners, handle)
+            handle.flush()
+            return succeeded
+    except OSError:
+        return False

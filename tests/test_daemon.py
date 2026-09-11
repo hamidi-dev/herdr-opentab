@@ -325,6 +325,27 @@ class RoundTests(unittest.TestCase):
         answered, _ = daemon.round_once(make_config(), self.directory.name, 1)
         self.assertTrue(answered)
 
+    def test_rejected_report_preserves_previous_value_for_rename_cleanup(self):
+        self.stub_agents(
+            [
+                Agent(
+                    {
+                        "pane_id": "w1:p1",
+                        "agent": "claude",
+                        "cwd": "/p",
+                        "tokens": {"elapsed": "$1.00"},
+                    }
+                )
+            ]
+        )
+        opentab.price = lambda targets, cfg: {"/p": "$2.00"}
+        herdr.report_token = lambda *args: False
+        reported = {"w1:p1": ("$1.00", 0, None)}
+        daemon.round_once(make_config(token="elapsed", ttl_ms=0), self.directory.name, 1, reported)
+        self.assertEqual(reported, {"w1:p1": ("$1.00", 0, None)})
+        daemon.clear_all(reported, "elapsed", 2)
+        self.assertEqual(self.cleared, [("w1:p1", "elapsed")])
+
 
 if __name__ == "__main__":
     unittest.main()

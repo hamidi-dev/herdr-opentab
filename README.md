@@ -1,7 +1,7 @@
 # herdr-opentab
 
-See what your agents are costing you, right in the [Herdr](https://herdr.dev)
-sidebar.
+See what your agents are costing you and how long they've been working or
+waiting, right in the [Herdr](https://herdr.dev) sidebar.
 
 ![The Herdr sidebar with a price beside every agent](docs/screenshot.png)
 
@@ -27,7 +27,8 @@ Then:
 
 ```bash
 herdr plugin install hamidi-dev/herdr-opentab
-herdr plugin action invoke opentab.setup     # put $cost in the sidebar
+herdr plugin action invoke opentab.setup     # put $cost and $elapsed in the sidebar
+herdr server reload-config                  # apply the sidebar layout
 herdr plugin action invoke opentab.refresh   # price everything now
 ```
 
@@ -45,9 +46,38 @@ width so the digits line up too:
 ```toml
 rows = [
   ["state_icon", "workspace", "tab"],
-  [{ token = "$cost", fg = "#a6e3a1" }, "agent"],
+  [{ token = "$cost", fg = "#a6e3a1" }, "$elapsed", "agent"],
 ]
 ```
+
+## Working / idle timer
+
+`$elapsed` shows time in the agent's current state: `02:18` means two minutes,
+18 seconds working, idle or blocked, as indicated by Herdr's state icon. After
+an hour it becomes `1:02:18`. It resets on a state or session change, not on a
+cost update. Herdr's "done" means unseen idle output; viewing it does not reset
+the timer.
+
+- Updates roughly every second, without extra OpenTab pricing calls or API requests.
+- `~` means observation began mid-state: plugin startup/restart, a session switch,
+  or a gap in tracking. After an observed state change the marker disappears.
+- Herdr supplies no transition timestamp, so even an observed transition is
+  accurate only to the polling interval. Missed cycles detected through its
+  state sequence restart with `~`; unknown states show no timer.
+- Timers are per pane, independent of transcript availability or project-price
+  ambiguity. Official integrations let the timer detect session switches within
+  the same terminal; without a session ID, it can only follow the terminal/state.
+- A stopped or unreachable timer expires from the sidebar within five seconds
+  of its last report. Set `"elapsed": false` to disable it.
+
+This is **not session age, accumulated working time, or a cache-expiry countdown**.
+CacheBell is separate and is neither required nor changed by this plugin.
+
+Upgrading an existing install: add `"$elapsed"` to your sidebar rows, run
+`herdr server reload-config`, then restart the daemon with `opentab.stop` followed
+by `opentab.refresh`. `setup` never rewrites your existing layout. A running
+sidebar may keep its old layout until the explicit reload, even while the timer
+is already being published.
 
 ## Which session a pane shows
 
@@ -100,7 +130,7 @@ suspects:
 | | |
 | --- | --- |
 | `opentab.refresh` | price everything now, and start the daemon if it is not running |
-| `opentab.setup` | add `$cost` to the sidebar rows |
+| `opentab.setup` | add `$cost` and `$elapsed` to the sidebar rows |
 | `opentab.doctor` | the walk-through above |
 | `opentab.stop` | stop the daemon until the next Herdr start |
 
@@ -126,6 +156,7 @@ about — the daemon rereads it every round, no restart:
 | key | default | |
 | --- | --- | --- |
 | `token` | `cost` | sidebar token name; rename it to live beside another cost plugin |
+| `elapsed` | `true` | publish the `$elapsed` state-duration timer; disabled automatically if `token` is already `elapsed` |
 | `interval_secs` | `10` | seconds between rounds while an agent is working (min 3) |
 | `idle_interval_secs` | `60` | …and when none is |
 | `fallback` | `project` | `off` prices only panes with a real session id |
@@ -148,6 +179,11 @@ One daemon prices every pane in a single `opentab cost --batch -` call and
 writes back only the panes whose number changed, so ten agents still cost one
 opentab process per round. `src/core.py` holds those decisions and does no I/O,
 which is where the interesting cases are tested.
+
+`src/elapsed.py` observes Herdr on a separate worker thread in that same daemon,
+so even a slow or failed pricing batch cannot freeze its ticks. It uses its own
+metadata source and a fixed five-second lease, independent of price
+lease settings. No new dependencies or changes to OpenTab are needed.
 
 ## License
 

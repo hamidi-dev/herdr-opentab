@@ -1,4 +1,4 @@
-"""Put the `$cost` token into the user's Agent sidebar rows.
+"""Put the `$cost` and `$elapsed` tokens into the user's Agent sidebar rows.
 
 Herdr renders custom tokens only where the layout asks for them, so a freshly
 installed plugin reports a price nobody can see until `ui.sidebar.agents.rows`
@@ -30,7 +30,7 @@ def herdr_config_path() -> str:
     return os.path.join(base, "herdr", "config.toml")
 
 
-def block(token: str) -> str:
+def block(token: str, elapsed: bool = True) -> str:
     """The default Agent layout, with the price leading the agent row.
 
     Price first on purpose: herdr lays a row out left to right, so a price that
@@ -39,11 +39,12 @@ def block(token: str) -> str:
     same column -- and the daemon pads them to a common width, so the digits and
     the labels after them line up too.
     """
+    timer = ', "$elapsed"' if elapsed else ""
     return (
         f"{SECTION}\n"
         "rows = [\n"
         '  ["state_icon", "workspace", "tab"],\n'
-        f'  ["${token}", "agent"],\n'
+        f'  ["${token}"{timer}, "agent"],\n'
         "]\n"
     )
 
@@ -179,7 +180,7 @@ def _table_defines_agents(text: str, header: str) -> bool:
     return False
 
 
-def install(token: str) -> int:
+def install(token: str, elapsed: bool = True) -> int:
     path = herdr_config_path()
     try:
         with open(path, encoding="utf-8") as handle:
@@ -190,20 +191,21 @@ def install(token: str) -> int:
         print(f"opentab: cannot read {path}: {error}", file=sys.stderr)
         return 1
 
-    if text is not None and mentions_token(text, token):
-        print(f"opentab: ${token} is already in {path}; nothing to do")
+    tokens = [token, "elapsed"] if elapsed else [token]
+    if text is not None and all(mentions_token(text, name) for name in tokens):
+        print(f"opentab: sidebar tokens are already in {path}; nothing to do")
         return 0
 
     if text is not None and has_section(text):
         print(
             f"opentab: {path} already configures {SECTION}, so it is yours to edit.\n"
-            f'Add "${token}" to one of its rows -- first in the row keeps the\n'
-            f"prices in one column:\n\n"
-            f'  ["${token}", "agent"],\n'
+            f"Include the tokens from this layout (price first keeps it aligned):\n\n"
+            f"{block(token, elapsed)}\n"
+            "Then run `herdr server reload-config` to apply it."
         )
         return 0
 
-    body = block(token)
+    body = block(token, elapsed)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "a", encoding="utf-8") as handle:
@@ -216,12 +218,12 @@ def install(token: str) -> int:
         return 1
 
     print(f"opentab: wrote the Agent sidebar layout to {path}:\n\n{body}")
-    print("herdr reloads config.toml on save; run `herdr config check` if the rows look off.")
+    print("Run `herdr server reload-config` to apply it; `herdr config check` validates the file.")
     return 0
 
 
-def show(token: str) -> int:
-    print(f"Add this to {herdr_config_path()}:\n\n{block(token)}")
+def show(token: str, elapsed: bool = True) -> int:
+    print(f"Add this to {herdr_config_path()}:\n\n{block(token, elapsed)}")
     return 0
 
 
@@ -229,8 +231,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Add the OpenTab price token to the sidebar")
     parser.add_argument("mode", nargs="?", default="install", choices=["install", "show"])
     args = parser.parse_args(argv)
-    token = config.load().token
-    return install(token) if args.mode == "install" else show(token)
+    cfg = config.load()
+    return (
+        install(cfg.token, cfg.elapsed) if args.mode == "install" else show(cfg.token, cfg.elapsed)
+    )
 
 
 if __name__ == "__main__":
