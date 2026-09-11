@@ -20,11 +20,13 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from typing import Optional, Tuple
 
 import config
 import core
+import elapsed
 import herdr
 import opentab
 
@@ -56,7 +58,9 @@ SHUTDOWN_BUDGET = 5.0
 # (BATCH_TIMEOUT), the herdr call it may be inside, and the bounded shutdown
 # that follows. Bounded is the point: without SHUTDOWN_BUDGET the cleanup is one
 # call per priced pane and no constant here could cover it.
-STOP_TIMEOUT = opentab.BATCH_TIMEOUT + herdr.CALL_TIMEOUT + SHUTDOWN_BUDGET + 5.0
+STOP_TIMEOUT = (
+    opentab.BATCH_TIMEOUT + herdr.CALL_TIMEOUT + SHUTDOWN_BUDGET + elapsed.SHUTDOWN_TIMEOUT + 5.0
+)
 
 # How long to wait before telling the user this is going to take a moment.
 STOP_QUIET = 3.0
@@ -268,10 +272,9 @@ def round_once(
             _clear(pane_id, cfg.token, seq, reported, now)
         elif herdr.report_token(pane_id, cfg.token, value, cfg.lease_ms, seq):
             reported[pane_id] = (value, now, cfg.lease_ms)
-        else:
-            # The write failed, so the lease we think we hold does not exist.
-            # Forgetting it makes the next round report the value again.
-            reported.pop(pane_id, None)
+        # A rejected write does not revoke the previous value or its lease.
+        # Keep that record for renewal and cleanup, including a token rename
+        # while this pricing batch was running.
     return True, working
 
 
@@ -356,9 +359,11 @@ def run(state_dir: str) -> int:
         return 0
 
     stop = {"now": False}
+    timer_stop = threading.Event()
 
     def handle(_signum, _frame):  # noqa: ANN001 -- signal handler signature
         stop["now"] = True
+        timer_stop.set()
 
     signal.signal(signal.SIGTERM, handle)
     signal.signal(signal.SIGINT, handle)
@@ -375,6 +380,8 @@ def run(state_dir: str) -> int:
     reported: dict[str, Reported] = {}
     token = cfg.token
     next_check = time.monotonic() + REVOKE_CHECK_SECS
+    timer = threading.Thread(target=elapsed.run, args=(timer_stop,), name="elapsed", daemon=True)
+    timer.start()
     try:
         while not stop["now"]:
             # Reloaded every round: editing config.json should take effect
@@ -410,6 +417,8 @@ def run(state_dir: str) -> int:
                     seen_wake = stamp
                     break
     finally:
+        timer_stop.set()
+        timer.join(timeout=elapsed.SHUTDOWN_TIMEOUT)
         # Prices this daemon will no longer renew must not outlive it: herdr
         # keeps a reported token in the server, where it would sit looking
         # current forever.

@@ -106,6 +106,21 @@ class EnvOverrides(ConfigDir):
 
 
 class Booleans(unittest.TestCase):
+    def test_elapsed_can_be_disabled(self):
+        self.assertFalse(config._coerce({"elapsed": False}, [])["elapsed"])
+
+    def test_elapsed_rejects_a_string(self):
+        warnings = []
+        self.assertTrue(config._coerce({"elapsed": "false"}, warnings)["elapsed"])
+        self.assertTrue(warnings)
+
+    def test_existing_cost_token_takes_precedence_over_timer(self):
+        warnings = []
+        merged = config._coerce({"token": "elapsed"}, warnings)
+        self.assertEqual(merged["token"], "elapsed")
+        self.assertFalse(merged["elapsed"])
+        self.assertTrue(warnings)
+
     def test_a_string_is_not_a_boolean(self):
         warnings = []
         merged = config._coerce({"strip_approx": "false"}, warnings)

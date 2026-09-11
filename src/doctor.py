@@ -102,6 +102,18 @@ def main() -> int:
             "run `herdr plugin action invoke opentab.setup`",
         )
 
+    if cfg.elapsed:
+        visible = setup_sidebar.mentions_token(sidebar, "elapsed")
+        line(
+            OK if visible else WARN,
+            "sidebar    $elapsed "
+            + (
+                "is configured (observed state duration)"
+                if visible
+                else "is missing; run `herdr plugin action invoke opentab.setup`"
+            ),
+        )
+
     if agents:
         print("\nagents")
         targets, assignments = core.plan(agents, cfg.project_fallback, cfg.agents)
