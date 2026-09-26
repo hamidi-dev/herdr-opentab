@@ -65,3 +65,15 @@ id = "stop"
 title = "OpenTab: stop the price daemon"
 contexts = ["global", "workspace"]
 command = ["python3", "src/daemon.py", "--stop"]
+
+[[actions]]
+id = "open"
+title = "Open session in OpenTab"
+contexts = ["pane"]
+command = ["python3", "src/open_agent.py"]
+
+[[panes]]
+id = "session"
+title = "OpenTab"
+placement = "overlay"
+command = ["python3", "src/open_agent.py", "--run"]
