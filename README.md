@@ -133,6 +133,7 @@ suspects:
 | `opentab.setup` | add `$cost` and `$elapsed` to the sidebar rows |
 | `opentab.doctor` | the walk-through above |
 | `opentab.stop` | stop the daemon until the next Herdr start |
+| `opentab.open` | open the focused agent's session in a temporary OpenTab overlay |
 
 Herdr plugins cannot ship keybindings, so bind one yourself in `config.toml`:
 
@@ -142,6 +143,28 @@ key = "prefix+$"
 type = "plugin_action"
 command = "opentab.refresh"
 ```
+
+To open the focused agent's session in OpenTab, add a separate binding to your own
+`config.toml` (pick a key not already used by your configuration):
+
+```toml
+[[keys.command]]
+key = "prefix+o"
+type = "plugin_action"
+command = "opentab.open"
+description = "Open session in OpenTab"
+```
+
+The overlay covers the agent temporarily; quitting OpenTab (`q`) closes it and
+returns to that pane. This action requires a native session ID from an
+`herdr integration install <agent>` integration. Unlike sidebar prices, it never
+uses the directory fallback: that
+could open a different agent in a shared repo. If there is no focused agent,
+or session ID, the action shows a Herdr notification without opening an
+overlay. If OpenTab cannot find the session yet, it opens its normal browser
+instead of drilling into another agent. Subagent IDs resolve to their root session.
+`opentab_bin` also applies to this action; `opentab_args`
+are cost-command options and are not passed to the TUI.
 
 ## Settings
 
