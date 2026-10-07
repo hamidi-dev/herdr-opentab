@@ -43,6 +43,9 @@ DEFAULTS: dict[str, Any] = {
     "opentab_bin": "opentab",
     # Extra argv for `opentab cost`, e.g. ["--source", "claude"].
     "opentab_args": [],
+    # Where opentab.open launches the TUI; direction applies to split/zoomed.
+    "open_placement": "overlay",
+    "open_direction": "right",
     # How long a reported price stays valid. Null means "derive one from the
     # interval": the daemon then renews every price it still stands behind, so a
     # daemon that is killed, disabled, or wedged takes its prices down with it
@@ -79,6 +82,8 @@ class Config:
         self.agents: list[str] | None = values["agents"]
         self.opentab_bin: str = values["opentab_bin"]
         self.opentab_args: list[str] = values["opentab_args"]
+        self.open_placement: str = values["open_placement"]
+        self.open_direction: str = values["open_direction"]
         self.ttl_ms: int | None = values["ttl_ms"]
         self.strip_approx: bool = values["strip_approx"]
         self.align: bool = values["align"]
@@ -157,6 +162,14 @@ def _coerce(values: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
     if merged["fallback"] not in ("project", "off"):
         warnings.append(f"invalid fallback {merged['fallback']!r}; using {DEFAULTS['fallback']!r}")
         merged["fallback"] = DEFAULTS["fallback"]
+
+    for key, choices in (
+        ("open_placement", ("overlay", "popup", "split", "tab", "zoomed")),
+        ("open_direction", ("right", "down")),
+    ):
+        if merged[key] not in choices:
+            warnings.append(f"invalid {key} {merged[key]!r}; using {DEFAULTS[key]!r}")
+            merged[key] = DEFAULTS[key]
 
     agents = merged["agents"]
     if agents is not None:

@@ -1,4 +1,4 @@
-"""Open the focused Herdr agent's native session in a temporary overlay."""
+"""Open the focused Herdr agent's native session in the configured placement."""
 
 from __future__ import annotations
 
@@ -48,36 +48,43 @@ def open_agent() -> None:
     if agents is None:
         raise ValueError("Could not read Herdr agents")
     session = session_for_pane(pane_id, agents)
-    binary = config.load().opentab_bin
+    cfg = config.load()
+    binary = cfg.opentab_bin
     if shutil.which(binary) is None:
         raise ValueError(f"OpenTab executable {binary!r} was not found")
     # Let --goto resolve subagent IDs and handle unavailable transcripts. A
     # separate catalog query duplicates startup work and requires newer OpenTab.
-    # Pass the resolved ID before opening: once the overlay takes focus the
+    # Pass the resolved ID before opening: once OpenTab takes focus the
     # pane context points at OpenTab itself. Neither cwd nor cost-only args are
     # suitable for opening the TUI. --env is one argv element, never shell code.
     argv = [
         config.herdr_bin(), "plugin", "pane", "open", "--plugin", "opentab",
-        "--entrypoint", "session", "--placement", "overlay", "--focus",
+        "--entrypoint", "session", "--placement", cfg.open_placement, "--focus",
         "--env", f"OPENTAB_OPEN_SESSION={session}",
         "--env", f"OPENTAB_OPEN_PANE={pane_id}",
     ]
+    if cfg.open_placement in ("split", "zoomed"):
+        argv += ["--target-pane", pane_id, "--direction", cfg.open_direction]
     result = subprocess.run(
         argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10
     )
     if result.returncode:
-        raise ValueError(f"Could not open the OpenTab overlay: {result.stderr.strip() or result.stdout.strip()}")
+        raise ValueError(
+            f"Could not open OpenTab ({cfg.open_placement}): "
+            f"{result.stderr.strip() or result.stdout.strip()}"
+        )
 
 
 def run_tui() -> None:
-    # Herdr overlays target whichever pane is active when they are launched.
-    # Avoid showing an old target if focus changed while the action was running.
+    # Herdr supplies pre-launch context: the explicit target for split/zoomed,
+    # or the active pane for overlay/popup/tab. Reject a focus race in the latter
+    # modes rather than showing a session from a different pane or workspace.
     origin = os.environ.get("OPENTAB_OPEN_PANE")
     if not origin or focused_pane_id(os.environ.get("HERDR_PLUGIN_CONTEXT_JSON")) != origin:
         raise ValueError("Pane focus changed; invoke opentab.open again from the agent pane")
     session = os.environ.get("OPENTAB_OPEN_SESSION", "")
     if not core.is_usable_session_id(session):
-        raise ValueError("OpenTab overlay is missing a valid session ID")
+        raise ValueError("OpenTab pane is missing a valid session ID")
     binary = config.load().opentab_bin
     os.execvp(binary, [binary, "--goto", session])
 
