@@ -133,7 +133,7 @@ suspects:
 | `opentab.setup` | add `$cost` and `$elapsed` to the sidebar rows |
 | `opentab.doctor` | the walk-through above |
 | `opentab.stop` | stop the daemon until the next Herdr start |
-| `opentab.open` | open the focused agent's session in a temporary OpenTab overlay |
+| `opentab.open` | open the focused agent's session in OpenTab using your preferred placement |
 
 Herdr plugins cannot ship keybindings, so bind one yourself in `config.toml`:
 
@@ -155,13 +155,27 @@ command = "opentab.open"
 description = "Open session in OpenTab"
 ```
 
-The overlay covers the agent temporarily; quitting OpenTab (`q`) closes it and
-returns to that pane. This action requires a native session ID from an
+By default, an overlay covers the agent temporarily; quitting OpenTab (`q`)
+closes it and returns to that pane. Set `open_placement` in the plugin's
+`config.json` to choose `overlay`, `popup` (floating), `split`, `tab`, or `zoomed`
+(a zoomed split). For example, to open below the agent:
+
+```json
+{ "open_placement": "split", "open_direction": "down" }
+```
+
+`open_direction` accepts `right` (default) or `down` and applies to `split` and
+`zoomed` only. These settings are read on every invocation, with no restart.
+Floating `popup` requires a Herdr build that lists it under
+`herdr plugin pane open --help`; the stock 0.7.5 CLI only supports the other four
+placements.
+
+This action requires a native session ID from an
 `herdr integration install <agent>` integration. Unlike sidebar prices, it never
 uses the directory fallback: that
 could open a different agent in a shared repo. If there is no focused agent,
-or session ID, the action shows a Herdr notification without opening an
-overlay. If OpenTab cannot find the session yet, it opens its normal browser
+or session ID, the action shows a Herdr notification without opening a
+pane. If OpenTab cannot find the session yet, it opens its normal browser
 instead of drilling into another agent. Subagent IDs resolve to their root session.
 `opentab_bin` also applies to this action; `opentab_args`
 are cost-command options and are not passed to the TUI.
@@ -186,6 +200,8 @@ about — the daemon rereads it every round, no restart:
 | `agents` | all | limit to certain agents, e.g. `["claude", "codex"]` |
 | `opentab_bin` | `opentab` | full path, when it is not on `PATH` |
 | `opentab_args` | none | extra flags for `opentab cost`, e.g. `["--harness", "claude"]` |
+| `open_placement` | `overlay` | where `opentab.open` launches: `overlay`, `popup` (requires Herdr support), `split`, `tab`, or `zoomed` |
+| `open_direction` | `right` | split direction for `split` and `zoomed`: `right` or `down` |
 | `ttl_ms` | 3 idle rounds | how long a price stays valid; the daemon renews it, so a stopped daemon takes its prices down with it. `0` keeps the last number forever |
 | `strip_approx` | `false` | drop OpenTab's leading `~`, which marks an estimate |
 | `align` | `true` | pad prices to a common width; set `false` if `$cost` ends its row |

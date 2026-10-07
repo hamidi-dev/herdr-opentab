@@ -44,6 +44,8 @@ class Defaults(ConfigDir):
         # On by default, and safe: core.plan withholds a directory price from
         # every pane of a project that has more than one agent.
         self.assertTrue(cfg.project_fallback)
+        self.assertEqual(cfg.open_placement, "overlay")
+        self.assertEqual(cfg.open_direction, "right")
 
     def test_values_are_read(self):
         self.write({"token": "spend", "interval_secs": 30, "fallback": "off"})
@@ -91,6 +93,27 @@ class Rejections(ConfigDir):
         self.write({"agents": "claude"})
         cfg = config.load()
         self.assertIsNone(cfg.agents)
+
+
+class OpenPlacement(ConfigDir):
+    def test_placement_and_direction_are_reread_from_file(self):
+        for placement in ("overlay", "popup", "split", "tab", "zoomed"):
+            for direction in ("right", "down"):
+                with self.subTest(placement=placement, direction=direction):
+                    self.write({"open_placement": placement, "open_direction": direction})
+                    cfg = config.load()
+                    self.assertEqual(cfg.open_placement, placement)
+                    self.assertEqual(cfg.open_direction, direction)
+                    self.assertEqual(cfg.warnings, [])
+
+    def test_invalid_open_settings_fall_back_and_are_reported(self):
+        for key in ("open_placement", "open_direction"):
+            for value in ("unknown", "", None, True, 1, [], {}):
+                with self.subTest(key=key, value=value):
+                    self.write({key: value})
+                    cfg = config.load()
+                    self.assertEqual(getattr(cfg, key), config.DEFAULTS[key])
+                    self.assertTrue(any(key in warning for warning in cfg.warnings))
 
 
 class EnvOverrides(ConfigDir):
